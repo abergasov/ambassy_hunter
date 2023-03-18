@@ -71,7 +71,6 @@ global.cpatchaReslove = "";
             const buffer = await response.buffer();
             fs.writeFileSync(`cookies/${process.env.USER_MAIL}_image.jpeg`, buffer, 'base64');
             sendPhotoTelegram();
-            sendCaptchaRecognize();
         }
     });
 
@@ -83,13 +82,14 @@ global.cpatchaReslove = "";
     console.log(`found available days: ${elHandleArray.length}`)
     if (elHandleArray.length === 0) {
         console.log("no free days")
-        //process.exit(0)
+        process.exit(0)
     }
     notifyTelegram()
     if (elHandleArray.length > 0) {
         await elHandleArray[0].click()
         await page.waitForNavigation() // wait for page reload
     }
+    sendCaptchaRecognize();
 
     await page.select('#VisaTypeId', process.env.VISA_TYPE);
     //await page.focus('#app_time'); // time range
