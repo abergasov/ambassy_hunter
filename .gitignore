@@ -1,0 +1,9 @@
+node_modules/
+.idea/
+.cache/puppeteer/*
+!.cache/puppeteer/.gitkeep
+yarn-error.log
+cookies.yml
+.env
+!cookies/.gitkeep
+cookies/*

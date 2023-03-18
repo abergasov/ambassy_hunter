@@ -1,1 +1,4 @@
-# ambassy_hunter
+```bash
+yarn install
+yarn run dev
+```
