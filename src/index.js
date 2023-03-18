@@ -2,15 +2,18 @@ import puppeteer from 'puppeteer';
 import dotenv from 'dotenv'
 import fs from 'fs';
 import inquirer from "inquirer";
+import axios from "axios";
 import TelegramBot from "node-telegram-bot-api"
 
-const firstStepURL = 'https://oman.blsspainvisa.com/book_appointment.php';
-const secondStepURL = 'https://oman.blsspainvisa.com/appointment.php';
-const captchaURL = "https://oman.blsspainvisa.com/captcha/captcha.php";
+const firstStepURL = 'https://armenia.blsspainvisa.com/book_appointment.php';
+const secondStepURL = 'https://armenia.blsspainvisa.com/appointment.php';
+const captchaURL = "https://armenia.blsspainvisa.com/captcha/captcha.php";
+
+global.taskID = 0;
+global.cpatchaReslove = "";
 
 (async () => {
     dotenv.config()
-    await sendReceiptFileTelegram()
 
     const browser = await puppeteer.launch({
         headless: false
@@ -36,19 +39,20 @@ const captchaURL = "https://oman.blsspainvisa.com/captcha/captcha.php";
         await page.focus('#phone');
         await page.keyboard.type(process.env.USER_PHONE);
 
-        await page.evaluate(() => {
-            document.querySelector('input[type=submit]').click();
-        });
-        const mailCodeContainer = await inquirer.prompt([
-            {
-                type: 'input',
-                name: 'name',
-                message: "Enter code from mail:",
-            },
-        ])
-
-        await page.focus('#otp');
-        await page.keyboard.type(mailCodeContainer.name);
+        // OTP TMP DISABLED
+        // await page.evaluate(() => {
+        //     document.querySelector('input[type=submit]').click();
+        // });
+        // const mailCodeContainer = await inquirer.prompt([
+        //     {
+        //         type: 'input',
+        //         name: 'name',
+        //         message: "Enter code from mail:",
+        //     },
+        // ])
+        //
+        // await page.focus('#otp');
+        // await page.keyboard.type(mailCodeContainer.name);
         await Promise.all([
             page.click("input[value=Continue]"),
             page.waitForNavigation({waitUntil: 'networkidle2'})
@@ -67,6 +71,7 @@ const captchaURL = "https://oman.blsspainvisa.com/captcha/captcha.php";
             const buffer = await response.buffer();
             fs.writeFileSync(`cookies/${process.env.USER_MAIL}_image.jpeg`, buffer, 'base64');
             sendPhotoTelegram();
+            sendCaptchaRecognize();
         }
     });
 
@@ -78,16 +83,18 @@ const captchaURL = "https://oman.blsspainvisa.com/captcha/captcha.php";
     console.log(`found available days: ${elHandleArray.length}`)
     if (elHandleArray.length === 0) {
         console.log("no free days")
-        process.exit(0)
+        //process.exit(0)
     }
     notifyTelegram()
-    await elHandleArray[0].click()
-    await page.waitForNavigation() // wait for page reload
+    if (elHandleArray.length > 0) {
+        await elHandleArray[0].click()
+        await page.waitForNavigation() // wait for page reload
+    }
 
     await page.select('#VisaTypeId', process.env.VISA_TYPE);
-    await page.focus('#app_time'); // time range
-    await page.keyboard.press('ArrowDown');
-    await page.keyboard.press('Enter');
+    //await page.focus('#app_time'); // time range
+   // await page.keyboard.press('ArrowDown');
+   // await page.keyboard.press('Enter');
     // set personal data
     await (await page.waitForSelector('#first_name')).type(process.env.USER_FIRST_NAME);
     await (await page.waitForSelector('#last_name')).type(process.env.USER_LAST_NAME);
@@ -104,15 +111,20 @@ const captchaURL = "https://oman.blsspainvisa.com/captcha/captcha.php";
     await (await page.waitForSelector('#passport_no')).type(process.env.USER_PASS_NUM);
     await (await page.waitForSelector('#pptIssuePalace')).type(process.env.USER_PASS_ISSUED);
 
-    const captchaCodeContainer = await inquirer.prompt([
-        {
-            type: 'input',
-            name: 'name',
-            message: "Enter captcha:",
-        },
-    ])
+    // wait until captcha image loaded
+    function waitForChange() {
+        return new Promise(resolve => {
+            setInterval(() => {
+                if (global.cpatchaReslove !== "") {
+                    resolve();
+                }
+            }, 1000);
+        });
+    }
+    await waitForChange()
+
     await page.focus('#captcha');
-    await page.keyboard.type(captchaCodeContainer.name);
+    await page.keyboard.type(global.cpatchaReslove);
 
     await Promise.all([
         page.click("input[type=submit]"),
@@ -129,7 +141,6 @@ async function getCookie(mail) {
     try {
         const cookiesString = await fs.readFileSync(`cookies/${mail}.json`)
         const cookies = JSON.parse(cookiesString);
-        console.log(cookies)
         return cookies
     } catch (error) {
         return undefined
@@ -153,4 +164,26 @@ async function sendPhotoTelegram() {
 async function notifyTelegram() {
     const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, {polling: false});
     await bot.sendMessage(process.env.TELEGRAM_CHAT, "found slot to embassy");
+}
+
+async function sendCaptchaRecognize() {
+    const formData = new FormData();
+    formData.append('method', 'base64');
+    formData.append('key', process.env.RU_CAPTCHA_KEY);
+    formData.append('body', fs.readFileSync(`cookies/${process.env.USER_MAIL}_image.jpeg`, {encoding: 'base64'}));
+    axios.post('http://rucaptcha.com/in.php', formData).then(response => {
+        console.log("res:",response.data);
+        global.taskID = response.data.split('|')[1]
+    }).catch(error => {
+        console.error("err: ",error);
+    });
+
+    const inte = setInterval(async () => {
+        const response = await axios.get(`http://rucaptcha.com/res.php?key=${process.env.RU_CAPTCHA_KEY}&action=get&id=${global.taskID}`)
+        console.log("response", response.data)
+        if (response.data !== "CAPCHA_NOT_READY") {
+            global.cpatchaReslove = response.data.split('|')[1]
+            clearInterval(inte)
+        }
+    }, 3000)
 }
